@@ -24,3 +24,7 @@ uvicorn src.app:app --reload --host 127.0.0.1 --port 8000
 
 ### Compilar e Executar em ambiente de container
 
+```sh
+docker build -t ml-ti-incident-classifier:latest .
+docker run --rm -p 8000:8000 ml-ti-incident-classifier:latest
+```

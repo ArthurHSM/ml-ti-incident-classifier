@@ -1,0 +1,21 @@
+@environment = http://localhost:8000
+
+### GET Health Check
+
+GET {{environment}}/
+Accept: application/json
+
+### Request Prediction
+
+POST {{environment}}/predict
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source": "Dynatrace",
+  "environment": "prod",
+  "severity": "major",
+  "metric_name": "connection_errors",
+  "ci": "app-7",
+  "maintenace": false
+}
