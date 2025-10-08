@@ -5,17 +5,32 @@
 GET {{environment}}/health
 Accept: application/json
 
-### Request Prediction
+### Request Prediction (Alto Risco)
 
 POST {{environment}}/predict
 Content-Type: application/json
 Accept: application/json
 
 {
-  "source": "asda",
-  "environment": "dev",
+  "source": "Dynatrace",
+  "environment": "prod",
   "severity": "major",
   "metric_name": "service_unavailable",
-  "ci": "server-test-01",
+  "ci": "db-prod-02",
   "maintenance": "false"
+}
+
+### Request Prediction (Baixo Risco)
+
+POST {{environment}}/predict
+Content-Type: application/json
+Accept: application/json
+
+{
+  "source": "Zabbix",
+  "environment": "dev",
+  "severity": "ok",
+  "metric_name": "ping_failed",
+  "ci": "server-test-01",
+  "maintenance": "true"
 }

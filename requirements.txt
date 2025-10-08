@@ -8,3 +8,5 @@ pickle-mixin
 scipy
 joblib
 xgboost
+pandas
+scikit-learn
