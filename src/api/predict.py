@@ -1,4 +1,5 @@
 import joblib
+import logging
 import pandas as pd
 import re
 import xgboost as xgb
@@ -15,36 +16,34 @@ from src.model.predict_request import PredictRequest
 
 router = APIRouter(prefix="/predict", tags=["predict"])
 
+logger = logging.getLogger(__name__)
+
 # compute package-relative paths (src/)
 BASE_DIR = Path(__file__).resolve().parent.parent
-BIN_DIR = BASE_DIR / "bin"
-OHE_PATH = BIN_DIR / "ohe_category_map.pkl"
-MODEL_PATH = BIN_DIR / "xgb_champion_final.pkl"
 
-INPUT_COLS_API = ['source', 'environment', 'severity', 'metric_name', 'ci', 'maintenance']
+# mapa de categorias salvo
+try:
+    OHE_CATEGORY_MAP = joblib.load(f"{BASE_DIR}/bin/ohe_category_map.pkl")
+except FileNotFoundError:
+    raise RuntimeError("Erro ao carregar artefatos. Verifique a pasta 'model_artifacts_deploy'.")
+
+# Definições de Colunas
 CATEGORICAL_COLS = ['source', 'environment', 'severity', 'metric_name', 'ci_tratado']
-THRESHOLD_BUSINESS = 0.75
+# O input da API ainda terá a coluna 'ci' original, mas a saída precisa de 'ci_tratado'
+INPUT_COLS_API = ['source', 'environment', 'severity', 'metric_name', 'ci', 'maintenance']
+THRESHOLD_NEGOCIO = 0.75
 
-# Lazy-load OHE map/transformer so import-time missing files don't crash the app
-_OHE_CATEGORY_MAP = None
-_ohe_transformer = None
+# Instanciação do OHE (Repetido aqui para clareza da função final)
+ohe_transformer = OneHotEncoder(
+    categories=[OHE_CATEGORY_MAP[col] for col in CATEGORICAL_COLS],
+    handle_unknown='ignore',
+    sparse_output=False
+)
 
-def _ensure_ohe():
-    global _OHE_CATEGORY_MAP, _ohe_transformer
-    if _ohe_transformer is not None and _OHE_CATEGORY_MAP is not None:
-        return
-    if not OHE_PATH.exists():
-        raise FileNotFoundError(f"OHE category map not found at {OHE_PATH}")
-    _OHE_CATEGORY_MAP = joblib.load(OHE_PATH)
-    _ohe_transformer = OneHotEncoder(
-        categories=[_OHE_CATEGORY_MAP[col] for col in CATEGORICAL_COLS],
-        handle_unknown='ignore',
-        sparse_output=False
-    )
-    dummy_data_for_fit = pd.DataFrame([
-        [_OHE_CATEGORY_MAP[col][0] for col in CATEGORICAL_COLS]
-    ], columns=CATEGORICAL_COLS)
-    _ohe_transformer.fit(dummy_data_for_fit.values)
+dummy_data_for_fit = pd.DataFrame([
+    [OHE_CATEGORY_MAP[col][0] for col in CATEGORICAL_COLS]
+], columns=CATEGORICAL_COLS)
+ohe_transformer.fit(dummy_data_for_fit.values)
 
 def _process_ci_column(ci_value):
     """
@@ -66,7 +65,7 @@ def _process_ci_column(ci_value):
         # Se não encontrar letras (ex: '404-error'), trata como desconhecido
         return "unknown_ci"
 
-def prepare_alert_for_model(alert_data_dict: PredictRequest) -> csr_matrix:
+def prepare_alert_for_model(alert_data_dict: dict) -> csr_matrix:
     """
     Função principal que replica Feature Engineering para um único alerta.
     Retorna uma matriz esparsa (CSR).
@@ -74,6 +73,8 @@ def prepare_alert_for_model(alert_data_dict: PredictRequest) -> csr_matrix:
 
     # 1. Inicialização do DataFrame a partir do JSON (usa as colunas de entrada da API)
     df_alert = pd.DataFrame([alert_data_dict], columns=INPUT_COLS_API)
+
+    logger.info(f"Received alert data: {df_alert.to_dict(orient='records')}")
 
     # 2. ETAPA DE PRÉ-PROCESSAMENTO/TRANSFORMAÇÃO (Regras de Limpeza)
 
@@ -89,14 +90,12 @@ def prepare_alert_for_model(alert_data_dict: PredictRequest) -> csr_matrix:
 
     categorical_data = df_alert[CATEGORICAL_COLS]
 
-    # Ensure OHE transformer is ready
-    try:
-        _ensure_ohe()
-    except FileNotFoundError as e:
-        raise
 
     # Aplica o OHE (Transforma em matriz esparsa, usando .values)
-    ohe_features = _ohe_transformer.transform(categorical_data.values)
+    # Assumimos que ohe_transformer foi inicializado com sparse_output=True
+    ohe_features = ohe_transformer.transform(categorical_data.values)
+
+    logger.info(f"OHE transformed features shape: {ohe_features.tolist()}")
 
     # Converte a feature 'maintenance_int' (Densa) em uma matriz esparsa (CSR)
     maintenance_sparse = csr_matrix(df_alert[['maintenance_int']].values)
@@ -111,9 +110,11 @@ def prepare_alert_for_model(alert_data_dict: PredictRequest) -> csr_matrix:
     if final_vector.shape[1] != 37:
         raise ValueError(f"Dimensão do vetor inválida: {final_vector.shape[1]}. Esperado: 37 features.")
 
+    logger.info(f"Prepared feature vector with shape: {final_vector.toarray()}")
+
     return final_vector
 
-def get_model_decision(alert_data_dict: PredictRequest) -> dict:
+def get_model_decision(alert_data_dict: dict) -> dict:
     """
     Integra o pré-processamento com a previsão e a regra de negócio.
     Esta função simula o endpoint final da API.
@@ -122,11 +123,9 @@ def get_model_decision(alert_data_dict: PredictRequest) -> dict:
     # A API idealmente faria isso APENAS uma vez na inicialização,
     # mas fazemos aqui para o teste:
     try:
-        if not MODEL_PATH.exists():
-            return {"error": f"Model file not found at {MODEL_PATH}"}, 500
-        loaded_model = joblib.load(MODEL_PATH)
-    except Exception as e:
-        return {"error": f"Failed loading model: {e}"}, 500
+        loaded_model = joblib.load(f"{BASE_DIR}/bin/xgb_champion_final.pkl")
+    except FileNotFoundError:
+        return {"error": "Arquivo do modelo não encontrado. Verifique o caminho."}, 500
 
     # 2. Pré-processar o alerta para obter o vetor de features
     model_input_vector = prepare_alert_for_model(alert_data_dict)
@@ -136,15 +135,29 @@ def get_model_decision(alert_data_dict: PredictRequest) -> dict:
     probability = loaded_model.predict_proba(model_input_vector)[:, 1][0]
 
     # 4. Aplicar a Regra de Negócio (Threshold)
-    is_incident = probability >= THRESHOLD_BUSINESS
+    is_incident = probability >= THRESHOLD_NEGOCIO
 
     # 5. Retorno formatado para a API
     return {
         "is_incident": bool(is_incident),
         "probability": float(probability),
-        "decision_threshold": THRESHOLD_BUSINESS
+        "decision_threshold": THRESHOLD_NEGOCIO
     }
 
 @router.post("/", tags=["predict"])
 def predict(req: PredictRequest):
-    return get_model_decision(req)
+    # convert to dict (Pydantic v1)
+    req_dict = req.dict(exclude_none=True)
+
+    # now access values safely with .get()
+    features = [
+        req_dict.get("source"),
+        req_dict.get("environment"),
+        req_dict.get("severity"),
+        req_dict.get("metric_name"),
+        req_dict.get("ci"),
+        # convert boolean to int if model expects numeric
+        int(req_dict.get("maintenace", False)) if req_dict.get("maintenace") is not None else None,
+    ]
+
+    return get_model_decision(features)

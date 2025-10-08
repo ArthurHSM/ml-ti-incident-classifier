@@ -12,10 +12,10 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "source": "Zabbix",
+  "source": "asda",
   "environment": "dev",
-  "severity": "ok",
-  "metric_name": "ping_failed",
+  "severity": "major",
+  "metric_name": "service_unavailable",
   "ci": "server-test-01",
-  "maintenance": "true"
+  "maintenance": "false"
 }
