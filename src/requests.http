@@ -12,10 +12,10 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "source": "Dynatrace",
-  "environment": "prod",
-  "severity": "major",
-  "metric_name": "connection_errors",
-  "ci": "app-7",
-  "maintenace": false
+  "source": "Zabbix",
+  "environment": "dev",
+  "severity": "ok",
+  "metric_name": "ping_failed",
+  "ci": "server-test-01",
+  "maintenance": "true"
 }
