@@ -2,7 +2,7 @@
 
 ### GET Health Check
 
-GET {{environment}}/
+GET {{environment}}/health
 Accept: application/json
 
 ### Request Prediction
