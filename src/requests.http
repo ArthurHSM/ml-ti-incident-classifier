@@ -12,10 +12,10 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "source": "Dynatrace",
-  "environment": "prod",
+  "source": "asda",
+  "environment": "dev",
   "severity": "major",
-  "metric_name": "connection_errors",
-  "ci": "app-7",
-  "maintenace": false
+  "metric_name": "service_unavailable",
+  "ci": "server-test-01",
+  "maintenance": "false"
 }
