@@ -1,8 +1,9 @@
-FROM python:3.13-alpine
+FROM python:3.11-slim
 
 # Update OS packages and install build deps
-RUN apk update && apk upgrade --available && \
-    apk add --no-cache --virtual .build-deps gcc libffi-dev musl-dev openssl-dev
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install --no-install-recommends -y gcc libffi-dev build-essential libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,8 +12,7 @@ COPY requirements.txt /app/requirements.txt
 
 # Install runtime deps
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /app/requirements.txt \
-    && apk del .build-deps
+    && pip install --no-cache-dir -r /app/requirements.txt 
 
 # Copy application code
 COPY src /app/src
